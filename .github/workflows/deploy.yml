@@ -1,0 +1,36 @@
+name: Deploy PayIt Web to GitHub Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet publish PayItWeb.csproj -c Release -o release
+      - name: Configure GitHub Pages base path
+        shell: bash
+        run: |
+          REPO="${GITHUB_REPOSITORY#*/}"
+          sed -i "s|<base href=\"/\">|<base href=\"/${REPO}/\">|" release/wwwroot/index.html
+          touch release/wwwroot/.nojekyll
+          cp release/wwwroot/index.html release/wwwroot/404.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: release/wwwroot
+      - id: deployment
+        uses: actions/deploy-pages@v4

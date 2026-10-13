@@ -1,0 +1,121 @@
+@namespace PayItWeb.Pages
+@using System.Globalization
+@using System.Security.Cryptography
+
+<div class="shell">
+<header class="top"><div class="brand">✦ <span>Pay<span class="accent">It</span></span></div><div class="topright"><span class="pill">DÉMONSTRATION · ARGENT FICTIF</span>@if (current is not null){<button class="quiet" @onclick="Logout">Déconnexion ↗</button>}</div></header>
+<main>
+@if (current is null)
+{
+    <div class="hero"><div class="eyebrow">VOTRE PORTEFEUILLE VIRTUEL</div><h1>Votre argent fictif.<br/><span class="accent">Votre espace.</span></h1><p>Découvrez PayIt, une application bancaire de démonstration développée en C# avec Blazor.</p></div>
+    <div class="authgrid">
+        <section class="panel"><h2>Se connecter</h2><p class="muted">Accédez à votre espace de démonstration.</p><form @onsubmit="Login" @onsubmit:preventDefault><label for="email">Adresse e-mail</label><input id="email" type="email" @bind="loginEmail" required/><label for="password">Mot de passe</label><input id="password" type="password" @bind="loginPassword" required/><button class="primary" type="submit">Se connecter →</button></form><div class="demo"><strong>Compte de démonstration</strong><div>gwenaelle@payit.fr / 1234</div><div>marie@payit.fr / 5678</div><button class="link" @onclick="FillDemo">Remplir avec le compte démo →</button></div></section>
+        <section class="panel"><h2>Créer un compte</h2><p class="muted">Testez l'application avec un profil fictif.</p><form @onsubmit="Register" @onsubmit:preventDefault><label for="first">Prénom</label><input id="first" @bind="newFirst" required/><label for="last">Nom</label><input id="last" @bind="newLast" required/><label for="newemail">Adresse e-mail</label><input id="newemail" type="email" @bind="newEmail" required/><label for="newpass">Mot de passe (6 caractères minimum)</label><input id="newpass" type="password" minlength="6" @bind="newPassword" required/><button class="primary" type="submit">Créer mon compte →</button></form></section>
+    </div>
+}
+else
+{
+    <div class="welcome"><div><div class="eyebrow">TABLEAU DE BORD</div><h1>Bonjour, @current.FirstName 👋</h1><p class="muted">@current.Email</p></div><div class="avatar">@(current.FirstName.Length > 0 ? current.FirstName[..1].ToUpperInvariant() : "?")</div></div>
+    <div class="dashboard">
+        <div class="leftcol">
+            <section class="panel balance"><div class="eyebrow">SOLDE DISPONIBLE</div><div class="balancevalue">@Euro(current.Balance)</div><p class="muted">Portefeuille virtuel · Aucun argent réel</p></section>
+            <section class="panel"><h2>Gérer mon argent</h2><label for="amount">Montant (€)</label><input id="amount" type="number" step="0.01" min="0.01" @bind="amount"/><div class="actions"><button class="primary" @onclick="AddMoney">＋ Ajouter</button><button class="secondary" @onclick="Withdraw">− Retirer</button></div></section>
+            <section class="panel"><h2>Envoyer de l'argent</h2><label for="recipient">Destinataire</label><select id="recipient" @bind="recipientEmail"><option value="">Choisir un utilisateur</option>@foreach(var u in users.Where(u=>u!=current)){<option value="@u.Email">@u.DisplayName</option>}</select><label for="transfer">Montant (€)</label><input id="transfer" type="number" min="0.01" step="0.01" @bind="transferAmount"/><button class="primary" @onclick="Transfer">Envoyer →</button></section>
+            <section class="panel"><h2>Utilisateurs</h2>@foreach(var u in users){<div class="userline"><span>@u.DisplayName @(u == current ? "· vous" : "")</span><strong>@Euro(u.Balance)</strong></div>}</section>
+        </div>
+        <div class="rightcol">
+            <section class="panel"><div class="sectionheading"><h2>Ma carte virtuelle</h2><span class="status @(current.CardActive ? "active" : "blocked")">@(current.CardActive ? "● Active" : "● Bloquée")</span></div><div class="bankcard"><div class="cardtop">✦ PayIt <span>VIRTUELLE</span></div><div class="cardchip">▦</div><div class="cardnum">•••• &nbsp; •••• &nbsp; •••• &nbsp; @current.CardNumber[^4..]</div><div class="cardbottom"><span>@current.DisplayName.ToUpperInvariant()</span><span>@current.Expiry</span></div></div><div class="actions"><button class="secondary" @onclick="ToggleCard">@(current.CardActive ? "Bloquer la carte" : "Réactiver la carte")</button><button class="secondary" @onclick="ToggleDetails">@(showDetails ? "Masquer les détails" : "Voir les détails")</button></div>@if(showDetails){<div class="details"><p>Numéro : @current.CardNumber</p><p>Expiration : @current.Expiry</p><p>CVV : @(showSensitive ? current.Cvv : "•••")</p><p>PIN : @(showSensitive ? current.Pin : "••••")</p><button class="link" @onclick="(()=>showSensitive=!showSensitive)">@(showSensitive ? "Masquer CVV et PIN" : "Afficher CVV et PIN")</button></div>}</section>
+            <section class="panel"><h2>Changer mon code PIN</h2><label for="oldpin">Code PIN actuel</label><input id="oldpin" type="password" maxlength="4" @bind="oldPin"/><label for="newpin">Nouveau code PIN</label><input id="newpin" type="password" maxlength="4" @bind="newPin"/><label for="confirmpin">Confirmer le nouveau PIN</label><input id="confirmpin" type="password" maxlength="4" @bind="confirmPin"/><button class="secondary pin-button" @onclick="ChangePin">Modifier le PIN</button></section>
+            <section class="panel"><div class="sectionheading"><h2>Historique</h2><select class="filter" aria-label="Filtrer les transactions" @bind="filter"><option value="Toutes">Toutes</option><option value="Ajout">Ajouts</option><option value="Retrait">Retraits</option><option value="Transfert">Transferts</option></select></div>@if(FilteredTransactions.Any()){@foreach(var t in FilteredTransactions){bool incoming=t.Type=="Ajout"||(t.Type=="Transfert"&&t.Recipient==current);<div class="transaction"><span class="symbol @(incoming ? "positive" : "negative")">@(incoming ? "↓" : "→")</span><div class="transactionmain"><strong>@TransactionTitle(t)</strong><small>@t.Date.ToString("dd/MM/yyyy HH:mm")</small></div><strong class="@(incoming ? "positive" : "negative")">@(incoming ? "+" : "−")@Euro(t.Amount)</strong></div>}}else{<div class="empty"><div class="emptyicon">◇</div><strong>Aucune transaction à afficher</strong><p>Vos opérations apparaîtront ici dès qu'elles seront disponibles.</p></div>}</section>
+        </div>
+    </div>
+}
+<button type="button" @onclick="FermerNotification">✕</button></main><footer>PayIt · Projet de démonstration · Transactions fictives · Données non conservées</footer>
+</div>
+
+@code {
+    private void FermerNotification()
+{
+    notification = "";
+}
+    private readonly List<User> users = new();
+    private User? current;
+    private string loginEmail="", loginPassword="", newFirst="", newLast="", newEmail="", newPassword="";
+    private string recipientEmail="", filter="Toutes", oldPin="", newPin="", confirmPin="";
+    private decimal amount, transferAmount;
+    private bool showDetails, showSensitive, notificationError;
+    private string notification="";
+    private static readonly CultureInfo French = CultureInfo.GetCultureInfo("fr-FR");
+    private static string Euro(decimal value) => value.ToString("N2", French) + " €";
+    protected override void OnInitialized()
+    {
+        users.Add(new User { FirstName="Gwénaëlle",LastName="Sorin",Email="gwenaelle@payit.fr",Password="1234",Balance=250.20m,CardNumber="4587123498761234",Cvv="284" });
+        users.Add(new User { FirstName="Marie",LastName="Dupont",Email="marie@payit.fr",Password="5678",Balance=100m,CardNumber="4587123498765678",Cvv="735" });
+    }
+    private void Notify(string message, bool error=false) { notification=message;notificationError=error; }
+    private void FillDemo(){loginEmail="gwenaelle@payit.fr";loginPassword="1234";}
+    private void Login()
+    {
+        var user=users.FirstOrDefault(u=>u.Email.Equals(loginEmail.Trim(),StringComparison.OrdinalIgnoreCase)&&u.Password==loginPassword);
+        if(user is null){Notify("E-mail ou mot de passe incorrect.",true);return;}
+        current=user;ResetView();Notify($"Bienvenue {user.FirstName} !");loginPassword="";
+    }
+    private void Register()
+    {
+        if(string.IsNullOrWhiteSpace(newFirst)||string.IsNullOrWhiteSpace(newLast)||!newEmail.Contains('@')||newPassword.Length<6){Notify("Vérifiez les informations du compte.",true);return;}
+        if(users.Any(u=>u.Email.Equals(newEmail.Trim(),StringComparison.OrdinalIgnoreCase))){Notify("Cette adresse e-mail est déjà utilisée.",true);return;}
+        var u=new User{FirstName=newFirst.Trim(),LastName=newLast.Trim(),Email=newEmail.Trim(),Password=newPassword,CardNumber="4587"+RandomNumberGenerator.GetInt32(10000000,99999999).ToString()+RandomNumberGenerator.GetInt32(1000,9999).ToString(),Cvv=RandomNumberGenerator.GetInt32(100,999).ToString()};
+        users.Add(u);current=u;newPassword="";ResetView();Notify("Compte fictif créé avec succès !");
+    }
+    private void ResetView(){showDetails=false;showSensitive=false;recipientEmail="";oldPin=newPin=confirmPin="";filter="Toutes";}
+    private void Logout(){current=null;ResetView();notification="";}
+    private bool ReadyForOperation(decimal value)
+    {
+        if(current is null)return false;
+        if(!current.CardActive){Notify("Votre carte est bloquée.",true);return false;}
+        if(value<=0){Notify("Le montant doit être supérieur à 0 €.",true);return false;}
+        return true;
+    }
+    private void AddMoney()
+    {
+        if(!ReadyForOperation(amount))return;
+        current!.Balance+=amount;current.Transactions.Add(new BankTransaction{Type="Ajout",Amount=amount});Notify($"{Euro(amount)} ajoutés à votre solde.");amount=0;
+    }
+    private void Withdraw()
+    {
+        if(!ReadyForOperation(amount))return;
+        if(current!.Balance<amount){Notify("Solde insuffisant pour effectuer ce retrait.",true);return;}
+        current.Balance-=amount;current.Transactions.Add(new BankTransaction{Type="Retrait",Amount=amount});Notify($"{Euro(amount)} retirés de votre solde.");amount=0;
+    }
+    private void Transfer()
+    {
+        if(!ReadyForOperation(transferAmount))return;
+        var to=users.FirstOrDefault(u=>u.Email==recipientEmail);
+        if(to is null){Notify("Veuillez choisir un destinataire.",true);return;}
+        if(to==current){Notify("Vous ne pouvez pas vous envoyer de l'argent.",true);return;}
+        if(current!.Balance<transferAmount){Notify("Transfert impossible : solde insuffisant.",true);return;}
+        current.Balance-=transferAmount;to.Balance+=transferAmount;
+        var tx=new BankTransaction{Type="Transfert",Amount=transferAmount,Sender=current,Recipient=to};current.Transactions.Add(tx);to.Transactions.Add(tx);
+        Notify($"Transfert effectué vers {to.FirstName} !");transferAmount=0;
+    }
+    private void ToggleCard(){if(current is null)return;current.CardActive=!current.CardActive;Notify(current.CardActive?"Votre carte a été réactivée.":"Votre carte a été bloquée.");}
+    private void ToggleDetails(){showDetails=!showDetails;showSensitive=false;}
+    private void ChangePin()
+    {
+        if(current is null)return;
+        if(!current.CardActive){Notify("Votre carte est bloquée.",true);return;}
+        if(oldPin!=current.Pin)
+        {
+            current.FailedPinAttempts++;
+            if(current.FailedPinAttempts>=3){current.CardActive=false;Notify("Carte bloquée après trois tentatives incorrectes.",true);}
+            else Notify($"Code PIN incorrect. Tentatives restantes : {3-current.FailedPinAttempts}.",true);
+            return;
+        }
+        current.FailedPinAttempts=0;
+        if(newPin.Length!=4||!newPin.All(c=>c>='0'&&c<='9')){Notify("Le nouveau PIN doit contenir quatre chiffres.",true);return;}
+        if(newPin!=confirmPin){Notify("Les deux nouveaux codes PIN ne correspondent pas.",true);return;}
+        current.Pin=newPin;oldPin=newPin=confirmPin="";Notify("Code PIN modifié avec succès.");
+    }
+    private IEnumerable<BankTransaction> FilteredTransactions => current?.Transactions.Where(t=>filter=="Toutes"||t.Type==filter).OrderByDescending(t=>t.Date) ?? Enumerable.Empty<BankTransaction>();
+    private string TransactionTitle(BankTransaction t)=>t.Type switch {"Ajout"=>"Ajout d'argent","Retrait"=>"Retrait d'argent","Transfert" when t.Recipient==current=>$"Transfert reçu de {t.Sender?.FirstName}","Transfert"=>$"Transfert envoyé à {t.Recipient?.FirstName}",_=>t.Type};
+}
